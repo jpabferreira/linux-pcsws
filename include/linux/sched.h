@@ -56,6 +56,54 @@ struct sched_param {
 
 #include <asm/processor.h>
 
+/*
+ * Extended scheduling parameters data structure.
+ *
+ * This is needed because the original struct sched_param can not be
+ * altered without introducing ABI issues with legacy applications
+ * (e.g., in sched_getparam()).
+ *
+ * However, the possibility of specifying more than just a priority for
+ * the tasks may be useful for a wide variety of application fields, e.g.,
+ * multimedia, streaming, automation and control, and many others.
+ *
+ * This variant (sched_param_pcsws) is meant at describing a so-called
+ * sporadic time-constrained task. In such model a task is specified by:
+ *  - the activation period or minimum instance inter-arrival time;
+ *  - the maximum (or average, depending on the actual scheduling
+ *    discipline) computation time of all instances, a.k.a. runtime;
+ *  - the deadline (relative to the actual activation time) of each
+ *    instance.
+ * Very briefly, a periodic (sporadic) task asks for the execution of
+ * some specific computation --which is typically called an instance--
+ * (at most) every period. Moreover, each instance typically lasts no more
+ * than the runtime and must be completed by time instant t equal to
+ * the instance activation time + the deadline.
+ *
+ * This is reflected by the actual fields of the sched_param_pcsws structure:
+ *
+ *  @sched_priority     task's priority (might still be useful)
+ *  @sched_deadline     representative of the task's deadline
+ *  @sched_runtime      representative of the task's runtime
+ *  @sched_period       representative of the task's period
+ *  @sched_flags        for customizing the scheduler behaviour
+ *
+ * Given this task model, there are a multiplicity of scheduling algorithms
+ * and policies, that can be used to ensure all the tasks will make their
+ * timing constraints.
+ *
+ * As of now, the SCHED_RTWS policy (sched_rtws scheduling class) is the
+ * only user of this new interface. More information about the algorithm
+ * available in the scheduling class file.
+ */
+struct sched_param_pcsws {
+    int sched_priority;
+    struct timespec sched_runtime;
+    struct timespec sched_deadline;
+    struct timespec sched_period;
+    unsigned int sched_flags;
+};
+
 struct exec_domain;
 struct futex_pi_state;
 struct robust_list_head;
@@ -1074,6 +1122,11 @@ struct sched_domain;
 #define ENQUEUE_WAKING		0
 #endif
 
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+#define ENQUEUE_REPLENISH	8   /* pCSWS: replenish server bandwidth */
+#endif
+
+
 #define DEQUEUE_SLEEP		1
 
 struct sched_class {
@@ -1239,6 +1292,52 @@ enum perf_event_task_context {
 	perf_nr_task_contexts,
 };
 
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+struct sched_stats_pcsws {
+	u64 dmiss_max;
+	u64 tot_runtime;
+};
+
+struct pcsws_dedicated {
+	unsigned long long period;
+	unsigned long long deadline;
+	unsigned long long budget;
+};
+
+struct pcsws_residual {
+	unsigned long long deadline;
+	unsigned long long budget;
+};
+
+struct pcsws_job {
+	atomic_t nr;
+
+	unsigned long long release;
+	s64 charge;
+	unsigned long long deadline;
+    //s64 runtime;
+};
+
+struct sched_pcsws_entity {
+	struct hrtimer timer;
+
+	struct pcsws_dedicated pcsws_ded;
+	struct pcsws_residual pcsws_res;
+	
+	struct pcsws_job pcsws_job;
+
+	struct rb_node rq_node;
+
+	unsigned long nr_pjobs;
+	struct rb_node pjob_node;
+
+	struct sched_stats_pcsws stats;
+	unsigned int flags;	/* specifying the scheduler behaviour	*/
+
+	int pcsws_new, throttled;
+};
+#endif
+
 struct task_struct {
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
 	volatile long saved_state;	/* saved state for "spinlock sleepers" */
@@ -1258,6 +1357,11 @@ struct task_struct {
 	const struct sched_class *sched_class;
 	struct sched_entity se;
 	struct sched_rt_entity rt;
+	
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+	struct sched_pcsws_entity pcsws;
+#endif
+	
 #ifdef CONFIG_CGROUP_SCHED
 	struct task_group *sched_task_group;
 #endif
@@ -1691,9 +1795,38 @@ static inline bool pagefault_disabled(void)
 #define MAX_PRIO		(MAX_RT_PRIO + 40)
 #define DEFAULT_PRIO		(MAX_RT_PRIO + 20)
 
+/* 
+ * SCHED_PCSWS tasks have negative priority equal to MAX_PCSWS_PRIO-1, since
+ * this priority has no impact on our scheduling strategy (only job's
+ * absolute deadline matters), but still reflecting
+ * the fact that any of them has higher priority than RT and NORMAL/BATCH tasks.
+ */
+#define MAX_PCSWS_PRIO		0
+
+static inline int pcsws_prio(int prio)
+{
+	if (unlikely(prio == MAX_PCSWS_PRIO - 1))
+		return 1;
+	return 0;
+}
+
+static inline int pcsws_task(struct task_struct *p)
+{
+	return pcsws_prio(p->prio);
+}
+
+/*
+ * We might have temporarily dropped SCHED_PCSWS policy,
+ * but still be a -pcsws task!
+ */
+static inline int __pcsws_task(struct task_struct *p)
+{
+	return pcsws_task(p) || p->policy == SCHED_PCSWS;
+}
+
 static inline int rt_prio(int prio)
 {
-	if (unlikely(prio < MAX_RT_PRIO))
+	if (unlikely(prio >= MAX_PCSWS_PRIO && prio < MAX_RT_PRIO))
 		return 1;
 	return 0;
 }

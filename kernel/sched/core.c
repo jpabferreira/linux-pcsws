@@ -905,7 +905,9 @@ static inline int normal_prio(struct task_struct *p)
 {
 	int prio;
 
-	if (task_has_rt_policy(p))
+	if (task_has_pcsws_policy(p))
+		prio = MAX_PCSWS_PRIO - 1;
+	else if (task_has_rt_policy(p))
 		prio = MAX_RT_PRIO-1 - p->rt_priority;
 	else
 		prio = __normal_prio(p);
@@ -1717,7 +1719,7 @@ void sched_fork(struct task_struct *p)
 	 * Revert to default priority/policy on fork if requested.
 	 */
 	if (unlikely(p->sched_reset_on_fork)) {
-		if (task_has_rt_policy(p)) {
+		if (task_has_pcsws_policy(p) || task_has_rt_policy(p)) {
 			p->policy = SCHED_NORMAL;
 			p->static_prio = NICE_TO_PRIO(0);
 			p->rt_priority = 0;
@@ -1734,7 +1736,29 @@ void sched_fork(struct task_struct *p)
 		p->sched_reset_on_fork = 0;
 	}
 
-	if (!rt_prio(p->prio))
+	if (pcsws_prio(p->prio)) {
+		p->sched_class = &pcsws_sched_class;
+
+		/*
+		* If the new process created has the thread flag active
+		* we consider it a parallel job. That means we must keep track
+		* of the root task, in order to account scheduling parameters
+		* correctly.
+		* Otherwise new process is a new task which must respect its own
+		* scheduling parameters.
+		*/
+		/*if (clone_flags & CLONE_THREAD) {
+			current->rtws.nr_pjobs++;
+			if (p->rtws.parent)
+				p->rtws.parent = current->rtws.parent;
+			else
+				p->rtws.parent = &current->rtws;
+		} else
+			p->pcsws.parent = NULL;*/
+			
+	} else if (rt_prio(p->prio))
+		p->sched_class = &rt_sched_class;
+	else
 		p->sched_class = &fair_sched_class;
 
 	if (p->sched_class->task_fork)
@@ -3777,7 +3801,7 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 	struct rq *rq;
 	const struct sched_class *prev_class;
 
-	BUG_ON(prio < 0 || prio > MAX_PRIO);
+	BUG_ON(prio < -1 || prio > MAX_PRIO);
 
 	rq = __task_rq_lock(p);
 
@@ -3809,7 +3833,9 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 	if (running)
 		p->sched_class->put_prev_task(rq, p);
 
-	if (rt_prio(prio))
+	if (pcsws_prio(prio))
+		p->sched_class = &pcsws_sched_class;
+	else if (rt_prio(prio))
 		p->sched_class = &rt_sched_class;
 	else
 		p->sched_class = &fair_sched_class;
@@ -3843,9 +3869,9 @@ void set_user_nice(struct task_struct *p, long nice)
 	 * The RT priorities are set via sched_setscheduler(), but we still
 	 * allow the 'normal' nice value to be set - but as expected
 	 * it wont have any effect on scheduling until the task is
-	 * SCHED_FIFO/SCHED_RR:
+	 * SCHED_PCSWS, SCHED_FIFO, or SCHED_RR:
 	 */
-	if (task_has_rt_policy(p)) {
+	if (task_has_pcsws_policy(p) || task_has_rt_policy(p)) {
 		p->static_prio = NICE_TO_PRIO(nice);
 		goto out_unlock;
 	}
@@ -4007,10 +4033,56 @@ __setscheduler(struct rq *rq, struct task_struct *p, int policy, int prio)
 	__setscheduler_params(p, policy, prio);
 	/* we are holding p->pi_lock already */
 	p->prio = rt_mutex_getprio(p);
-	if (rt_prio(p->prio))
+	
+	if (pcsws_prio(p->prio))
+	    p->sched_class = &pcsws_sched_class;
+	else if (rt_prio(p->prio))
 		p->sched_class = &rt_sched_class;
 	else
 		p->sched_class = &fair_sched_class;
+}
+
+/*
+ * This function initializes the sched_pcsws_entity of a newly becoming
+ * SCHED_PCSWS task.
+ *
+ * Only the static values are considered here, the
+ * absolute deadline will be properly calculated when the task is enqueued
+ * for the first time with its new policy.
+ */
+static void
+__setparam_pcsws(struct task_struct *p, struct rq *rq, const struct sched_param_pcsws *param_pcsws)
+{
+    struct sched_pcsws_entity *pcsws_se = &p->pcsws;
+
+    init_timer_pcsws(pcsws_se);
+
+    pcsws_se->pcsws_ded.budget = timespec_to_ns(&param_pcsws->sched_runtime);
+    pcsws_se->pcsws_ded.period = timespec_to_ns(&param_pcsws->sched_period);
+
+    if (timespec_to_ns(&param_pcsws->sched_deadline) != 0) {
+        pcsws_se->pcsws_ded.deadline = timespec_to_ns(&param_pcsws->sched_deadline);
+    }
+    else {
+        pcsws_se->pcsws.deadline = pcsws_se->pcsws.period;
+    }
+
+    pcsws_se->flags = param_pcsws->sched_flags;
+
+    /*
+    pcsws_se->help_first = 1;
+    pcsws_se->parent = NULL;
+    */
+
+    atomic_set(&pcsws_se->pcsws_job.nr, 0);
+
+    pcsws_se->stats.dmiss_max = 0;
+    pcsws_se->stats.tot_runtime = 0;
+
+    pcsws_se->pcsws_new = 1;
+    pcsws_se->throttled = 0;
+
+    //printk(KERN_EMERG "Setparam\n");
 }
 
 /*
@@ -4030,7 +4102,9 @@ static bool check_same_owner(struct task_struct *p)
 }
 
 static int __sched_setscheduler(struct task_struct *p, int policy,
-				const struct sched_param *param, bool user)
+				const struct sched_param *param,
+				const struct sched_param_pcsws *param_pcsws,
+				bool user)
 {
 	int newprio = MAX_RT_PRIO - 1 - param->sched_priority;
 	int retval, oldprio, oldpolicy = -1, on_rq, running;
@@ -4050,9 +4124,9 @@ recheck:
 		reset_on_fork = !!(policy & SCHED_RESET_ON_FORK);
 		policy &= ~SCHED_RESET_ON_FORK;
 
-		if (policy != SCHED_FIFO && policy != SCHED_RR &&
-				policy != SCHED_NORMAL && policy != SCHED_BATCH &&
-				policy != SCHED_IDLE)
+		if (policy != SCHED_PCSWS && policy != SCHED_FIFO &&
+				policy != SCHED_RR && policy != SCHED_NORMAL &&
+				policy != SCHED_BATCH && policy != SCHED_IDLE)
 			return -EINVAL;
 	}
 
@@ -4065,7 +4139,19 @@ recheck:
 	    (p->mm && param->sched_priority > MAX_USER_RT_PRIO-1) ||
 	    (!p->mm && param->sched_priority > MAX_RT_PRIO-1))
 		return -EINVAL;
-	if (rt_policy(policy) != (param->sched_priority != 0))
+		
+	/*
+	 * Valid priorities for SCHED_PCSWS is MAX_WS_PRIO-1.
+	 *
+	 * SCHED_PCSWS sets param->sched_priority = 0 and manipulates
+	 * param_pcsws for his own definitions. Final prio value is set on
+	 * __setscheduler function, thus prio passed from user space is
+	 * irrelevant (param_pcsws->sched_priority).
+	 *
+	 * The struct param_pcsws is null for all policies but SCHED_PCSWS.
+	 */
+	if ((pcsws_policy(policy) && !__checkparam_pcsws(param_pcsws, !p->mm)) ||
+		rt_policy(policy) != (param->sched_priority != 0))
 		return -EINVAL;
 
 	/*
@@ -4187,7 +4273,13 @@ recheck:
 		p->sched_class->put_prev_task(rq, p);
 
 	prev_class = p->sched_class;
-	__setscheduler(rq, p, policy, param->sched_priority);
+	
+	if (pcsws_policy(policy)) {
+		init_pcsws_job(rq, p);
+		__setparam_pcsws(p, rq, param_pcsws);
+		__setscheduler(rq, p, policy, param_pcsws->sched_priority);
+	} else
+		__setscheduler(rq, p, policy, param->sched_priority);
 
 	if (running)
 		p->sched_class->set_curr_task(rq);
@@ -4217,9 +4309,17 @@ recheck:
 int sched_setscheduler(struct task_struct *p, int policy,
 		       const struct sched_param *param)
 {
-	return __sched_setscheduler(p, policy, param, true);
+	return __sched_setscheduler(p, policy, param, NULL, true);
 }
 EXPORT_SYMBOL_GPL(sched_setscheduler);
+
+int sched_setscheduler_pcsws(struct task_struct *p, int policy,
+						const struct sched_param *param,
+						const struct sched_param_pcsws *param_pcsws)
+{
+	return __sched_setscheduler(p, policy, param, param_pcsws, true);
+}
+EXPORT_SYMBOL_GPL(sched_setscheduler_pcsws);
 
 /**
  * sched_setscheduler_nocheck - change the scheduling policy and/or RT priority of a thread from kernelspace.
@@ -4235,7 +4335,7 @@ EXPORT_SYMBOL_GPL(sched_setscheduler);
 int sched_setscheduler_nocheck(struct task_struct *p, int policy,
 			       const struct sched_param *param)
 {
-	return __sched_setscheduler(p, policy, param, false);
+	return __sched_setscheduler(p, policy, param, NULL, false);
 }
 
 static int
@@ -4260,6 +4360,59 @@ do_sched_setscheduler(pid_t pid, int policy, struct sched_param __user *param)
 	return retval;
 }
 
+/*
+ * Notice that, to extend sched_param_pcsws in the future without causing ABI
+ * issues, the user-space is asked to pass to this (and the other *_pcsws())
+ * function(s) the actual size of the data structure it has been compiled
+ * against.
+ *
+ * What we do is the following:
+ *  - if the user data structure is bigger than our one we fail, since this
+ *    means we wouldn't be able of providing some of the features that
+ *    are expected;
+ *  - if the user data structure is smaller than our one we can continue,
+ *    we just initialize to default all the fielld of the kernel-side
+ *    sched_param_pcsws and copy from the user the available values. This
+ *    obviously assume that such data structure can only grow and that
+ *    positions and meaning of the existing fields will not be altered.
+ *
+ * The issue can be addressed also adding a "version" field to the data
+ * structure itself (which would also remove the fixed position & meaning
+ * requirement)... Comments about the best way to go are welcome!
+ */
+static int
+do_sched_setscheduler_pcsws(pid_t pid, int policy, unsigned len,
+						struct sched_param_pcsws __user *param_pcsws)
+{
+	struct sched_param lparam;
+	struct sched_param_pcsws lparam_pcsws;
+	struct task_struct *p;
+	int retval;
+
+	if (!param_pcsws || pid < 0)
+		return -EINVAL;
+	if (len > sizeof(lparam_pcsws))
+		return -EINVAL;
+
+	memset(&lparam_pcsws, 0, sizeof(lparam_pcsws));
+	if (copy_from_user(&lparam_pcsws, param_pcsws, len))
+		return -EFAULT;
+
+	rcu_read_lock();
+	retval = -ESRCH;
+	p = find_process_by_pid(pid);
+	if (p != NULL) {
+		if (pcsws_policy(policy))
+			lparam.sched_priority = 0;
+		else
+			lparam.sched_priority = lparam_pcsws.sched_priority;
+		retval = sched_setscheduler_pcsws(p, policy, &lparam, &lparam_pcsws);
+	}
+	rcu_read_unlock();
+
+	return retval;
+}
+
 /**
  * sys_sched_setscheduler - set/change the scheduler policy and RT priority
  * @pid: the pid in question.
@@ -4276,6 +4429,55 @@ SYSCALL_DEFINE3(sched_setscheduler, pid_t, pid, int, policy,
 	return do_sched_setscheduler(pid, policy, param);
 }
 
+/*
+ * sys_sched_setscheduler_pcsws - same as above, but with extended sched_param
+ * @pid: the pid in question.
+ * @policy: new policy (could use extended sched_param).
+ * @len: size of data pointed by param_ex.
+ * @param: structure containg the extended parameters.
+ */
+SYSCALL_DEFINE4(sched_setscheduler_pcsws, pid_t, pid, int, policy,
+			unsigned, len, struct sched_param_pcsws __user *, param_pcsws)
+{
+	if (policy < 0)
+		return -EINVAL;
+
+	return do_sched_setscheduler_pcsws(pid, policy, len, param_pcsws);
+}
+
+/*
+ * sys_sched_delay_until_pcsws - sleep according to periodic rules.
+ */
+SYSCALL_DEFINE2(sched_wait_interval,
+			const struct timespec __user *, rqtp,
+			struct timespec __user *, rmtp)
+{
+	struct timespec lrq, lrm;
+	int ret = 0;
+
+	if (rqtp != NULL) {
+		if (copy_from_user(&lrq, rqtp, sizeof(struct timespec)))
+			return -EFAULT;
+		if (!timespec_valid(&lrq))
+			return -EINVAL;
+	}
+
+	if (task_has_pcsws_policy(current))
+		ret = wait_interval_pcsws(current, rqtp ? &lrq : NULL, &lrm);
+	else {
+		if (!rqtp)
+			return -EINVAL;
+
+		ret = hrtimer_nanosleep(&lrq, &lrm, HRTIMER_MODE_ABS,
+			CLOCK_MONOTONIC);
+	}
+
+	if (rmtp && copy_to_user(rmtp, &lrm, sizeof(struct timespec)))
+		return -EFAULT;
+
+	return ret;
+}
+
 /**
  * sys_sched_setparam - set/change the RT priority of a thread
  * @pid: the pid in question.
@@ -4284,6 +4486,18 @@ SYSCALL_DEFINE3(sched_setscheduler, pid_t, pid, int, policy,
 SYSCALL_DEFINE2(sched_setparam, pid_t, pid, struct sched_param __user *, param)
 {
 	return do_sched_setscheduler(pid, -1, param);
+}
+
+/*
+ * sys_sched_setparam_pcsws - same as above, but with extended sched_param
+ * @pid: the pid in question.
+ * @len: size of data pointed by param_ex.
+ * @param_pcsws: structure containing the extended parameters.
+ */
+SYSCALL_DEFINE3(sched_setparam_pcsws, pid_t, pid, unsigned, len,
+			struct sched_param_pcsws __user *, param_pcsws)
+{
+	return do_sched_setscheduler_pcsws(pid, -1, len, param_pcsws);
 }
 
 /**
@@ -4757,6 +4971,7 @@ SYSCALL_DEFINE1(sched_get_priority_max, int, policy)
 	case SCHED_RR:
 		ret = MAX_USER_RT_PRIO-1;
 		break;
+	case SCHED_PCSWS:
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
 	case SCHED_IDLE:
@@ -4781,7 +4996,8 @@ SYSCALL_DEFINE1(sched_get_priority_min, int, policy)
 	case SCHED_FIFO:
 	case SCHED_RR:
 		ret = 1;
-		break;
+		break;	
+	case SCHED_PCSWS:
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
 	case SCHED_IDLE:
@@ -5790,6 +6006,8 @@ static void free_rootdomain(struct rcu_head *rcu)
 {
 	struct root_domain *rd = container_of(rcu, struct root_domain, rcu);
 
+	cpudl_cleanup(&rd->pcswsc_cpudl);
+
 	cpupri_cleanup(&rd->cpupri);
 	free_cpumask_var(rd->rto_mask);
 	free_cpumask_var(rd->online);
@@ -5844,6 +6062,9 @@ static int init_rootdomain(struct root_domain *rd)
 		goto free_span;
 	if (!alloc_cpumask_var(&rd->rto_mask, GFP_KERNEL))
 		goto free_online;
+
+	if (cpudl_init(&rd->pcswsc_cpudl) != 0)
+	        goto free_rto_mask;
 
 	if (cpupri_init(&rd->cpupri) != 0)
 		goto free_rto_mask;
@@ -7200,6 +7421,9 @@ LIST_HEAD(task_groups);
 
 DECLARE_PER_CPU(cpumask_var_t, load_balance_tmpmask);
 
+/* Global runqueue for -pcsws tasks */
+struct pcsws_ready global;
+
 void __init sched_init(void)
 {
 	int i, j;
@@ -7241,6 +7465,10 @@ void __init sched_init(void)
 #endif /* CONFIG_CPUMASK_OFFSTACK */
 	}
 
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+	init_global_rq(&global);
+#endif
+
 #ifdef CONFIG_SMP
 	init_defrootdomain();
 #endif
@@ -7277,6 +7505,11 @@ void __init sched_init(void)
 		rq->calc_load_update = jiffies + LOAD_FREQ;
 		init_cfs_rq(&rq->cfs);
 		init_rt_rq(&rq->rt, rq);
+		
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+		init_pcsws_rq(&rq->pcsws, rq, &global);
+#endif
+		
 #ifdef CONFIG_FAIR_GROUP_SCHED
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
 		INIT_LIST_HEAD(&rq->leaf_cfs_rq_list);
@@ -7466,7 +7699,7 @@ void normalize_rt_tasks(void)
 		p->se.statistics.block_start	= 0;
 #endif
 
-		if (!rt_task(p)) {
+		if (!__pcsws_task(p) && !rt_task(p)) {
 			/*
 			 * Renice negative nice level userspace
 			 * tasks back to 0:
