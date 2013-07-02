@@ -4066,7 +4066,7 @@ __setparam_pcsws(struct task_struct *p, struct rq *rq, const struct sched_param_
         pcsws_se->pcsws_ded.deadline = timespec_to_ns(&param_pcsws->sched_deadline);
     }
     else {
-        pcsws_se->pcsws.deadline = pcsws_se->pcsws.period;
+        pcsws_se->pcsws_ded.deadline = pcsws_se->pcsws_ded.period;
     }
 
     pcsws_se->flags = param_pcsws->sched_flags;
@@ -4085,6 +4085,23 @@ __setparam_pcsws(struct task_struct *p, struct rq *rq, const struct sched_param_
     pcsws_se->throttled = 0;
 
     //printk(KERN_EMERG "Setparam\n");
+}
+
+static bool
+	__checkparam_pcsws(const struct sched_param_pcsws *prm, bool kthread)
+{
+	if (!prm)
+		return false;
+
+	//if (prm->sched_flags & SF_HEAD)
+		//return kthread;
+
+	return timespec_to_ns(&prm->sched_period) != 0
+		&& (timespec_to_ns(&prm->sched_deadline) != 0
+		|| timespec_compare(&prm->sched_period, &prm->sched_deadline) == 0)
+		&& ((timespec_to_ns(&prm->sched_deadline) != 0
+		&& timespec_compare(&prm->sched_deadline, &prm->sched_runtime) >= 0)
+		|| (timespec_to_ns(&prm->sched_deadline) == 0 && timespec_compare(&prm->sched_period, &prm->sched_runtime) >= 0));
 }
 
 /*
