@@ -216,12 +216,12 @@ extern void init_tg_rt_entry(struct task_group *tg, struct rt_rq *rt_rq,
 
 #else /* CONFIG_CGROUP_SCHED */
 
-extern struct rq *task_rq_lock(struct task_struct *p, unsigned long *flags);
-extern inline void task_rq_unlock(struct rq *rq, struct task_struct *p, unsigned long *flags);
-
 struct cfs_bandwidth { };
 
 #endif	/* CONFIG_CGROUP_SCHED */
+
+extern struct rq *task_rq_lock(struct task_struct *p, unsigned long *flags);
+extern inline void task_rq_unlock(struct rq *rq, struct task_struct *p, unsigned long *flags);
 
 /* CFS-related fields in a runqueue */
 struct cfs_rq {
