@@ -44,6 +44,13 @@ extern __read_mostly int scheduler_running;
  */
 #define RUNTIME_INF	((u64)~0ULL)
 
+/* newcode
+ * Single value that decides SCHED_PCSWS internal math precision.
+ * 10 -> just above 1us
+ * 9  -> just above 0.5us
+ */
+#define PCSWS_SCALE (10)
+
 static inline int rt_policy(int policy)
 {
 	if (policy == SCHED_FIFO || policy == SCHED_RR)

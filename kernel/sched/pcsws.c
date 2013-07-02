@@ -113,8 +113,8 @@ static void replenish_pcsws_entity(struct rq *rq, struct sched_pcsws_entity *pcs
      * arbitrary large.
      */
     while (pcsws_se->pcsws_job.charge <= 0) {
-        pcsws_se->pcsws_job.deadline += pcsws_se->pcsws.period;
-        pcsws_se->pcsws_job.charge += pcsws_se->pcsws.budget;
+        pcsws_se->pcsws_job.deadline += pcsws_se->pcsws_ded.period;
+        pcsws_se->pcsws_job.charge += pcsws_se->pcsws_ded.budget;
     }
 
     /*
@@ -127,8 +127,8 @@ static void replenish_pcsws_entity(struct rq *rq, struct sched_pcsws_entity *pcs
      * entity.
      */
     if (dl_time_before(pcsws_se->pcsws_job.deadline, rq->clock)) {
-        pcsws_se->pcsws_job.deadline = rq->clock + pcsws_se->pcsws.deadline;
-        pcsws_se->pcsws_job.charge = pcsws_se->pcsws.budget;
+        pcsws_se->pcsws_job.deadline = rq->clock + pcsws_se->pcsws_ded.deadline;
+        pcsws_se->pcsws_job.charge = pcsws_se->pcsws_ded.budget;
     }
 }
 
@@ -162,7 +162,7 @@ static bool pcsws_entity_overflow(struct sched_pcsws_entity *pcsws_se, u64 t)
    u64 left, right;
 
    struct pcsws_job *job = &pcsws_se->pcsws_job;
-   struct pcsws *server = &pcsws_se->pcsws;
+   struct pcsws_dedicated *server = &pcsws_se->pcsws_ded;
 
    /*
     * left and right are the two sides of the equation above,
@@ -215,8 +215,8 @@ inline void update_task_pcsws(struct rq *rq, struct sched_pcsws_entity *pcsws_se
 
     if (dl_time_before(pcsws_se->pcsws_job.deadline, rq->clock) ||
         pcsws_entity_overflow(pcsws_se, rq->clock)) {
-        pcsws_se->pcsws_job.deadline = rq->clock + pcsws_se->pcsws.deadline;
-        pcsws_se->pcsws_job.charge = pcsws_se->pcsws.budget;
+        pcsws_se->pcsws_job.deadline = rq->clock + pcsws_se->pcsws_ded.deadline;
+        pcsws_se->pcsws_job.charge = pcsws_se->pcsws_ded.budget;
     }
 }
 
@@ -1246,8 +1246,8 @@ static bool pcsws_check_bandwidth(struct sched_pcsws_entity *pcsws_se, u64 t)
      * after a bit of shuffling to use multiplications instead
      * of divisions.
      */
-    left = pcsws_se->pcsws.deadline * pcsws_se->pcsws_job.charge;
-    right = (pcsws_se->pcsws_job.deadline - t) * pcsws_se->pcsws.budget;
+    left = pcsws_se->pcsws_ded.deadline * pcsws_se->pcsws_job.charge;
+    right = (pcsws_se->pcsws_job.deadline - t) * pcsws_se->pcsws_ded.budget;
 
     return dl_time_before(left, right);
 }
@@ -1322,9 +1322,9 @@ long wait_interval_pcsws(struct task_struct *p, struct timespec *rqtp,
      */
     if (dl_time_before(wakeup, pcsws_se->pcsws_job.deadline) &&
         pcsws_check_bandwidth(pcsws_se, wakeup)) {
-        u64 ibw = (u64)pcsws_se->pcsws_job.charge * pcsws_se->pcsws.deadline;
+        u64 ibw = (u64)pcsws_se->pcsws_job.charge * pcsws_se->pcsws_ded.deadline;
 
-        ibw = div_u64(ibw, pcsws_se->pcsws.budget);
+        ibw = div_u64(ibw, pcsws_se->pcsws_ded.budget);
 
         wakeup = pcsws_se->pcsws_job.deadline - ibw;
       //-  printk(KERN_EMERG "[Wait interval] Setting2\n");

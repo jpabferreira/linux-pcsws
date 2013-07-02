@@ -326,7 +326,7 @@ static inline struct rq *__task_rq_lock(struct task_struct *p)
 /*
  * task_rq_lock - lock p->pi_lock and lock the rq @p resides on.
  */
-static struct rq *task_rq_lock(struct task_struct *p, unsigned long *flags)
+struct rq *task_rq_lock(struct task_struct *p, unsigned long *flags)
 	__acquires(p->pi_lock)
 	__acquires(rq->lock)
 {
