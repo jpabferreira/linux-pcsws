@@ -5,6 +5,7 @@
 #include <linux/stop_machine.h>
 
 #include "cpupri.h"
+#include "cpudl.h"
 
 extern __read_mostly int scheduler_running;
 
@@ -53,6 +54,18 @@ static inline int rt_policy(int policy)
 static inline int task_has_rt_policy(struct task_struct *p)
 {
 	return rt_policy(p->policy);
+}
+
+static inline int pcsws_policy(int policy)
+{
+	if (policy == SCHED_PCSWS)
+		return 1;
+	return 0;
+}
+
+static inline int task_has_pcsws_policy(struct task_struct *p)
+{
+	return pcsws_policy(p->policy);
 }
 
 /*
@@ -195,6 +208,9 @@ extern void init_tg_rt_entry(struct task_group *tg, struct rt_rq *rt_rq,
 		struct sched_rt_entity *parent);
 
 #else /* CONFIG_CGROUP_SCHED */
+
+extern struct rq *task_rq_lock(struct task_struct *p, unsigned long *flags);
+extern inline void task_rq_unlock(struct rq *rq, struct task_struct *p, unsigned long *flags);
 
 struct cfs_bandwidth { };
 
@@ -339,6 +355,11 @@ struct root_domain {
 	cpumask_var_t span;
 	cpumask_var_t online;
 
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+	/* Deadline for the current task assigned to each CPU */
+	struct cpudl pcswsc_cpudl;
+#endif
+
 	/*
 	 * The "RT overload" flag: it gets set if a CPU has more than
 	 * one runnable RT task.
@@ -346,6 +367,33 @@ struct root_domain {
 	cpumask_var_t rto_mask;
 	struct cpupri cpupri;
 };
+
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+struct pcsws_ready {
+	raw_spinlock_t lock;
+
+	struct rb_root tasks;
+	struct rb_node *leftmost; // Earliest deadline task
+
+	unsigned long nr_running;
+};
+
+extern struct pcsws_ready global;
+
+struct pcsws_rq {
+	unsigned long nr_running;
+
+	struct pcsws_ready *pcsws_ready;
+
+	/* Jobs in the local runqueue */
+	struct rb_root pjobs;
+
+	/* Leftmost job in the local runqueue */
+	struct rb_node *leftmost_pjob;
+
+	u64 earliest_dl;
+};
+#endif
 
 extern struct root_domain def_root_domain;
 
@@ -383,6 +431,10 @@ struct rq {
 
 	struct cfs_rq cfs;
 	struct rt_rq rt;
+
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+    struct pcsws_rq pcsws;
+#endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* list of leaf cfs_rq on this cpu: */
@@ -868,6 +920,9 @@ enum cpuacct_stat_index {
    for (class = sched_class_highest; class; class = class->next)
 
 extern const struct sched_class stop_sched_class;
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+extern const struct sched_class pcsws_sched_class;
+#endif
 extern const struct sched_class rt_sched_class;
 extern const struct sched_class fair_sched_class;
 extern const struct sched_class idle_sched_class;
