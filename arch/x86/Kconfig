@@ -2264,6 +2264,11 @@ endif
 
 endmenu
 
+menu "pCSWS Scheduler"
+        config	SCHED_PCSWS_POLICY
+        bool	"pCSWS Scheduling policy"
+        default	y
+endmenu
 
 config HAVE_ATOMIC_IOMAP
 	def_bool y

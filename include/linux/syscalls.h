@@ -878,4 +878,18 @@ asmlinkage long sys_process_vm_writev(pid_t pid,
 asmlinkage long sys_kcmp(pid_t pid1, pid_t pid2, int type,
 			 unsigned long idx1, unsigned long idx2);
 asmlinkage long sys_finit_module(int fd, const char __user *uargs, int flags);
+
+#ifdef CONFIG_SCHED_PCSWS_POLICY
+asmlinkage long sys_sched_setscheduler_pcsws(pid_t pid,
+			int policy,
+			unsigned len,
+			struct sched_param_pcsws __user *param_pcsws);
+			
+asmlinkage long sys_sched_wait_interval(const struct timespec __user *rqtp,
+			struct timespec *rmtp);
+			
+/*asmlinkage long sys_sched_setpolicies_pcsws(pid_t pid, int helpfirst, int randomized);
+asmlinkage long sys_sched_flush_stats_pcsws(void);*/
+#endif
+
 #endif
