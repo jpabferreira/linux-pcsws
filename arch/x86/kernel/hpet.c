@@ -598,7 +598,7 @@ static struct dmi_system_id __initdata dmi_hpet_table[] = {
 	{}
 };
 
-static void hpet_msi_capability_lookup(unsigned int start_timer)
+static void __initdata hpet_msi_capability_lookup(unsigned int start_timer)
 {
 	unsigned int id;
 	unsigned int num_timers;

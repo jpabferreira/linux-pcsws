@@ -1175,7 +1175,7 @@ static void set_curr_task_pcsws(struct rq *rq)
 /* Scheduling class function (task_tick_pcsws) */
 static void task_tick_pcsws(struct rq *rq, struct task_struct *p, int queued)
 {
-    update_curr_pcsws(rq);
+    //update_curr_pcsws(rq);
 
     /*
 #ifdef CONFIG_SCHED_HRTICK
