@@ -85,12 +85,12 @@ void cpudl_change_key(struct cpudl *cp, int idx, u64 new_dl)
 	}
 }
 
-static inline int cpudl_maximum(struct cpudl *cp)
+inline int cpudl_maximum(struct cpudl *cp)
 {
 	return cp->elements[0].cpu;
 }
 
-static inline int cpudl_minimum(struct cpudl *cp)
+inline int cpudl_minimum(struct cpudl *cp)
 {
 	return cp->elements[cp->size - 1].cpu;
 }
@@ -139,7 +139,7 @@ int cpudl_find(struct cpudl *cp, struct task_struct *p,
 	       struct cpumask *later_mask)
 {
 	int best_cpu = -1;
-	const struct sched_dl_entity *dl_se = &p->dl;
+	const struct sched_pcsws_entity *pcsws_se = &p->pcsws;
 
 	if (later_mask && cpumask_and(later_mask, cp->free_cpus,
 			&p->cpus_allowed) && cpumask_and(later_mask,
@@ -147,7 +147,7 @@ int cpudl_find(struct cpudl *cp, struct task_struct *p,
 		best_cpu = cpumask_any(later_mask);
 		goto out;
 	} else if (cpumask_test_cpu(cpudl_maximum(cp), &p->cpus_allowed) &&
-			dl_time_before(dl_se->deadline, cp->elements[0].dl)) {
+			dl_time_before(pcsws_se->pcsws_job.deadline, cp->elements[0].dl)) {
 		best_cpu = cpudl_maximum(cp);
 		if (later_mask)
 			cpumask_set_cpu(best_cpu, later_mask);
