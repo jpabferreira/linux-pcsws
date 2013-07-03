@@ -90,6 +90,43 @@ static inline int cpudl_maximum(struct cpudl *cp)
 	return cp->elements[0].cpu;
 }
 
+static inline int cpudl_minimum(struct cpudl *cp)
+{
+	return cp->elements[cp->size - 1].cpu;
+}
+
+int find_idle_cpu_pcsws(struct cpudl *cp)
+{
+	int best_cpu = -1;
+
+	//printk(KERN_INFO "size %d cpus %d\n", cp->size, num_present_cpus());
+
+	best_cpu = cpumask_any(cp->free_cpus);
+
+	if (best_cpu >= num_present_cpus())
+		best_cpu = -1;
+
+	return best_cpu;
+}
+
+int find_latest_cpu_pcsws(struct cpudl *cp)
+{
+	int best_cpu = -1;
+
+	//printk(KERN_INFO "size %d cpus %d\n", cp->size, num_present_cpus());
+
+	if (cp->size > 0)
+		best_cpu = cpudl_maximum(cp);
+
+	//printk(KERN_INFO "Best CPU: %d", best_cpu);
+
+	if (best_cpu >= num_present_cpus())
+		best_cpu = -1;
+
+	return best_cpu;
+}
+
+
 /*
  * cpudl_find - find the best (later-dl) CPU in the system
  * @cp: the cpudl max-heap context
