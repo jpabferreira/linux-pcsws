@@ -696,6 +696,8 @@ static int select_task_rq_pcsws(struct task_struct *p, int sd_flag, int flags)
 out:
     task_rq_unlock(rq, p, rq_flags);
 
+	printk(KERN_EMERG "[select_task_rq] %d\n", cpu);
+
     return cpu;
 }
 
@@ -830,12 +832,14 @@ static void enqueue_task_pcsws(struct rq *rq, struct task_struct *p, int flags)
      * rq->curr is to be preempted
      */
     if (!entity_preempt_equal_pcsws(&p->pcsws, &rq->curr->pcsws)) {
+		printk(KERN_EMERG "[Enqueue global]\n");
         __enqueue_task_pcsws(global_rq, &p->pcsws);
         return;
     }
 
 
 enqueue_local:
+	printk(KERN_EMERG "[Enqueue local]\n");
     enqueue_pjob_pcsws(rq, p, flags);
 
     check_preempt_curr_pcsws(rq, rq->curr, 0);
