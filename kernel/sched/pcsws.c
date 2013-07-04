@@ -695,7 +695,7 @@ static int select_task_rq_pcsws(struct task_struct *p, int sd_flag, int flags)
      * is called.
      */
 out:
-    task_rq_unlock(rq, p, rq_flags);
+    task_rq_unlock(rq, p, &rq_flags);
 
 	printk(KERN_EMERG "[select_task_rq] %d\n", cpu);
 
