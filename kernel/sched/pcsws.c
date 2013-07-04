@@ -5,7 +5,7 @@
 #include <linux/math64.h>
 
 inline void init_pcsws_job(struct rq *rq, struct task_struct *p) {
-	RB_CLEAR_NODE(&p->pcsws->pjob_node);
+	RB_CLEAR_NODE(&p->pcsws.pjob_node);
     p->pcsws.pcsws_job.release = 0;
 }
 
