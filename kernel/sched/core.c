@@ -4057,8 +4057,8 @@ __setparam_pcsws(struct task_struct *p, struct rq *rq, const struct sched_param_
 {
     struct sched_pcsws_entity *pcsws_se = &p->pcsws;
 
+	init_pcsws_job(rq, p);
     init_timer_pcsws(pcsws_se);
-	RB_CLEAR_NODE(&pcsws_se->pjob_node);
 
     pcsws_se->pcsws_ded.budget = timespec_to_ns(&param_pcsws->sched_runtime);
     pcsws_se->pcsws_ded.period = timespec_to_ns(&param_pcsws->sched_period);
@@ -4295,7 +4295,6 @@ recheck:
 	prev_class = p->sched_class;
 	
 	if (pcsws_policy(policy)) {
-		init_pcsws_job(rq, p);
 		__setparam_pcsws(p, rq, param_pcsws);
 		__setscheduler(rq, p, policy, param_pcsws->sched_priority);
 	} else
