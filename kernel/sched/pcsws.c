@@ -843,7 +843,7 @@ enqueue_local:
 	printk(KERN_EMERG "[Enqueue local]\n");
     enqueue_pjob_pcsws(rq, p, flags);
 
-    check_preempt_curr_pcsws(rq, rq->curr, 0);
+    //check_preempt_curr_pcsws(rq, rq->curr, 0);
 }
 
 /* Tasks' timer function */
