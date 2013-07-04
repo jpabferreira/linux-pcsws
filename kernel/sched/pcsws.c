@@ -4,11 +4,6 @@
 #include <linux/syscalls.h>
 #include <linux/math64.h>
 
-inline void init_pcsws_job(struct rq *rq, struct task_struct *p) {
-	RB_CLEAR_NODE(&p->pcsws.pjob_node);
-    p->pcsws.pcsws_job.release = 0;
-}
-
 /* Returns 1 if @pcsws_se is the leftmost pjob in @pcsws_rq */
 static inline int is_leftmost_pjob(struct pcsws_rq *pcsws_rq, struct sched_pcsws_entity *pcsws_se)
 {
@@ -1412,4 +1407,12 @@ void init_pcsws_rq(struct pcsws_rq *pcsws_rq, struct rq *rq, struct pcsws_ready 
     pcsws_rq->tot_cs = 0;
     */
     pcsws_rq->earliest_dl = 0;
+}
+
+inline void init_pcsws_job(struct rq *rq, struct task_struct *p) {
+	RB_CLEAR_NODE(&p->pcsws.pjob_node);
+    p->pcsws.pcsws_job.release = rq->clock_task;
+    p->pcsws.pcsws_job.charge = 0;
+	replenish_pcsws_entity(rq, &p->pcsws);
+	
 }
